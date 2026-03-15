@@ -814,8 +814,14 @@ const ScanView = (() => {
       // Update idle subtitle with live count
       document.getElementById('scan-idle-sub').textContent =
         `Scans all ${countUrls(fullTree)} bookmarks in your collection`;
-      // If scan finished while user was away, show idle (not stale scanning state)
-      if (!scanning) setState('idle');
+      // Restore correct state: scanning → show progress, results → show list, else idle
+      if (scanning) {
+        setState('scanning');
+      } else if (brokenList.length > 0) {
+        renderResults();
+      } else {
+        setState('idle');
+      }
     } else {
       panel.classList.add('hidden');
       tabBtn.classList.remove('active-tab');
@@ -897,7 +903,9 @@ const ScanView = (() => {
       scanning   = false;
       brokenList = msg.broken || [];
       scanTotal  = msg.total  || 0;
+      // Always store results; render immediately if panel is open
       if (inScanView) renderResults();
+      // If away, results will render when user returns via toggleView
     }
   }
 
