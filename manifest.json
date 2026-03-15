@@ -4,6 +4,7 @@
   "version": "1.0",
   "description": "Clean up your Chrome bookmarks with a proper UI",
   "permissions": ["bookmarks", "tabs"],
+  "host_permissions": ["<all_urls>"],
   "action": {
     "default_title": "Bookmark Cleaner"
   },
