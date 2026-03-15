@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bookmark Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-mark">&#9632;</span>
+          <span class="logo-text">BOOKMARK<br>MANAGER</span>
+        </div>
+        <button class="btn-icon" id="btn-new-folder" title="New top-level folder">+</button>
+      </div>
+      <div class="sidebar-stats">
+        <div class="stat-row"><span class="stat-label">In folder</span><span class="stat-val" id="stat-total">—</span></div>
+        <div class="stat-row"><span class="stat-label">Selected</span><span class="stat-val danger" id="stat-selected">0</span></div>
+      </div>
+      <div id="folder-tree"></div>
+    </aside>
+
+    <!-- Main panel -->
+    <main id="main">
+      <header id="main-header">
+        <div id="breadcrumb"></div>
+        <div class="header-actions">
+          <input type="text" id="search-input" placeholder="Filter..." autocomplete="off">
+          <button class="btn-ghost" id="btn-select-all">Select all</button>
+          <button class="btn-ghost" id="btn-add-bookmark" title="Add bookmark to this folder">+ Bookmark</button>
+        </div>
+      </header>
+      <div id="bookmark-list"></div>
+      <div id="empty-state" class="hidden">
+        <div class="empty-icon">&#9633;</div>
+        <div class="empty-title">Nothing here</div>
+        <div class="empty-sub">Select a folder from the sidebar</div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Bottom action bar -->
+  <div id="action-bar" class="hidden">
+    <span id="action-label">0 selected</span>
+    <div class="action-btns">
+      <button class="btn-ghost" id="btn-move-selected">Move to folder</button>
+      <button class="btn-ghost" id="btn-deselect">Clear</button>
+      <button class="btn-danger" id="btn-delete">Delete selected</button>
+    </div>
+  </div>
+
+  <!-- Context menu -->
+  <div id="ctx-menu" class="hidden">
+    <div class="ctx-item" data-action="open-tab">Open in new tab</div>
+    <div class="ctx-item" data-action="edit">Edit bookmark</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="rename">Rename</div>
+    <div class="ctx-item" data-action="new-subfolder">New subfolder</div>
+    <div class="ctx-item" data-action="add-bookmark-here">Add bookmark here</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="move">Move to folder...</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item danger" data-action="delete">Delete</div>
+    <div class="ctx-item danger" data-action="delete-folder">Delete folder</div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal-overlay" class="hidden">
+    <div id="modal">
+      <div id="modal-title"></div>
+      <div id="modal-body"></div>
+      <div id="modal-footer">
+        <button class="btn-ghost" id="modal-cancel">Cancel</button>
+        <button id="modal-confirm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
