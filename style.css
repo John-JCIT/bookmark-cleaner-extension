@@ -156,6 +156,7 @@ body {
 
 /* ── Bookmark list ── */
 #bookmark-list { flex: 1; overflow-y: auto; padding-bottom: var(--actionbar-h); }
+#bookmark-list.hidden { display: none; }
 #bookmark-list::-webkit-scrollbar { width: 4px; }
 #bookmark-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
@@ -391,6 +392,11 @@ body {
 
 /* ── Scan panel shell ────────────────────────────────────────────────────── */
 #scan-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#scan-panel.hidden    { display: none; }
+.scan-idle.hidden     { display: none; }
+.scan-scanning.hidden { display: none; }
+.scan-results.hidden  { display: none; }
+.scan-bulk-bar.hidden { display: none; }
 
 /* ── Idle + scanning states (centered content) ───────────────────────────── */
 .scan-idle,
