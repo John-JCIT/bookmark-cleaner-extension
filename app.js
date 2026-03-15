@@ -206,6 +206,7 @@ function startInlineRename(_row, nameEl, node) {
 function selectFolder(id) {
   selectedFolderId = id; checkedIds.clear(); searchQuery = '';
   document.getElementById('search-input').value = '';
+  ScanView.exitIfOpen();
   renderSidebar();
   const node = findNode(fullTree, id);
   if (node) renderBookmarks(node);
@@ -1096,5 +1097,13 @@ const ScanView = (() => {
     if (totalEl) totalEl.textContent = countUrls(tree[0]) || '\u2014';
   }
 
-  return { init };
+  // Exit scan view without restoring main view (caller handles main view)
+  function exitIfOpen() {
+    if (!inScanView) return;
+    inScanView = false;
+    document.getElementById('scan-panel').classList.add('hidden');
+    document.querySelector('.tab-btn')?.classList.remove('active-tab');
+  }
+
+  return { init, exitIfOpen };
 })();
