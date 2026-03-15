@@ -66,11 +66,14 @@ async function probeUrl(entry, scan) {
 // Active scan state — null when no scan is running.
 let activeScan = null;
 
-// Run the full scan: collect URLs, probe in batches of 5, report progress.
+// Run the full scan using a sliding-window pool of 25 concurrent probes.
+// As soon as one probe finishes, the next URL starts — no idle waiting.
 async function runScan(entries, tabId) {
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 25;
   const broken = [];
   const total = entries.length;
+  let checked = 0;
+  let nextIndex = 0;
 
   // Cancel any in-flight scan before starting a new one
   if (activeScan) {
@@ -82,25 +85,32 @@ async function runScan(entries, tabId) {
   const scan = { cancelled: false, controllers: new Set() };
   activeScan = scan;
 
-  for (let i = 0; i < entries.length; i += CONCURRENCY) {
-    if (scan.cancelled) break;
+  // Each worker pulls the next URL, probes it, reports progress, then loops.
+  async function worker() {
+    while (true) {
+      if (scan.cancelled) break;
+      const i = nextIndex++;
+      if (i >= total) break;
 
-    const batch = entries.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(batch.map(e => probeUrl(e, scan)));
-    for (const r of results) { if (r) broken.push(r); }
+      const result = await probeUrl(entries[i], scan);
+      if (result) broken.push(result);
+      checked++;
 
-    const checked = Math.min(i + CONCURRENCY, total);
-    try {
-      await chrome.tabs.sendMessage(tabId, {
-        type: 'SCAN_PROGRESS',
-        checked,
-        total,
-        brokenCount: broken.length
-      });
-    } catch (_) {
-      // Tab was closed — continue scanning but stop messaging
+      try {
+        await chrome.tabs.sendMessage(tabId, {
+          type: 'SCAN_PROGRESS',
+          checked,
+          total,
+          brokenCount: broken.length
+        });
+      } catch (_) {
+        // Tab was closed — continue scanning but stop messaging
+      }
     }
   }
+
+  // Launch CONCURRENCY workers in parallel; each drains the queue independently
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, total) }, worker));
 
   try {
     await chrome.tabs.sendMessage(tabId, {
