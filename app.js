@@ -38,6 +38,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   await reload();
   bindListeners();
+  ScanView.init();
 });
 
 function bindListeners() {
@@ -701,3 +702,384 @@ function showFatalError(msg) {
   clearEl(document.body);
   document.body.appendChild(el('div', { style: 'padding:40px;font-family:monospace;color:#e5484d;font-size:14px;', text: msg }));
 }
+
+// ── ScanView ────────────────────────────────────────────────────────────────
+const ScanView = (() => {
+  'use strict';
+
+  let scanTabId      = null;   // chrome tab ID of this extension page
+  let scanning       = false;  // true while a scan is in progress
+  let watchdog       = null;   // setTimeout handle
+  let brokenList     = [];     // results from last SCAN_COMPLETE
+  let scanTotal      = 0;      // total bookmarks checked in last scan
+  let checkedScanIds = new Set();
+
+  // Track whether the Dead Links panel is currently shown
+  let inScanView = false;
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+
+  function init() {
+    chrome.tabs.getCurrent(tab => {
+      if (!tab) {
+        console.error('ScanView: could not resolve tab ID — scan disabled');
+        return;
+      }
+      scanTabId = tab.id;
+      injectUI(); // onMessage listener is registered inside injectUI — not here
+    });
+  }
+
+  // ── DOM injection ──────────────────────────────────────────────────────────
+
+  function injectUI() {
+    // ① Tab button — injected into #main-header, before .header-actions
+    const mainHeader  = document.getElementById('main-header');
+    const headerActions = mainHeader.querySelector('.header-actions');
+    const tabBtn = el('button', { cls: 'tab-btn', text: '\u26A0 Dead Links', onclick: toggleView });
+    mainHeader.insertBefore(tabBtn, headerActions);
+
+    // ② Scan panel — appended to #main as sibling of #bookmark-list / #empty-state
+    const main = document.getElementById('main');
+
+    // Idle state
+    const idleSub  = el('div', { cls: 'scan-sub', id: 'scan-idle-sub',
+      text: 'Scans all bookmarks in your collection' });
+    const startBtn = el('button', { cls: 'btn-confirm-info',
+      text: 'Scan All Bookmarks', onclick: startScan });
+    const idleEl = el('div', { cls: 'scan-idle', id: 'scan-idle' },
+      el('div', { cls: 'scan-center' },
+        el('div', { cls: 'scan-title', text: 'Check for dead links' }),
+        idleSub,
+        startBtn
+      )
+    );
+
+    // Scanning state
+    const progressFill   = el('div', { cls: 'progress-bar-fill', id: 'progress-fill' });
+    const progressText   = el('span', { id: 'progress-text',    text: '0 of 0 checked' });
+    const progressBroken = el('span', { id: 'progress-broken',  text: '0 broken so far' });
+    const cancelBtn = el('button', { cls: 'btn-ghost', text: 'Cancel', onclick: cancelScan });
+    const scanningEl = el('div', { cls: 'scan-scanning hidden', id: 'scan-scanning' },
+      el('div', { cls: 'scan-center' },
+        el('div', { cls: 'scan-title', text: 'Scanning all bookmarks\u2026' }),
+        el('div', { cls: 'scan-sub',   text: 'Checking for broken links across your entire collection' }),
+        el('div', { cls: 'progress-wrap' },
+          el('div', { cls: 'progress-bar-bg' }, progressFill),
+          el('div', { cls: 'progress-label' }, progressText, progressBroken)
+        ),
+        cancelBtn
+      )
+    );
+
+    // Results state
+    const resultsHeader = el('div', { cls: 'results-header', id: 'results-header' });
+    const resultsList   = el('div', { cls: 'results-list',   id: 'results-list' });
+    const bulkLabel     = el('span', { cls: 'bulk-label', id: 'bulk-label', text: '0 selected' });
+    const selectAllLink = el('span', { cls: 'select-all-link', id: 'select-all-link',
+      text: 'Select All (0)', onclick: toggleSelectAll });
+    const bulkDeleteBtn = el('button', { cls: 'btn-danger', text: 'Delete Selected',
+      onclick: bulkDelete });
+    const bulkBar = el('div', { cls: 'scan-bulk-bar hidden', id: 'scan-bulk-bar' },
+      bulkLabel,
+      el('div', { style: 'display:flex;gap:8px;align-items:center' }, selectAllLink, bulkDeleteBtn)
+    );
+    const resultsEl = el('div', { cls: 'scan-results hidden', id: 'scan-results' },
+      resultsHeader, resultsList, bulkBar
+    );
+
+    // Assemble and mount panel
+    const panel = el('div', { id: 'scan-panel', cls: 'hidden' },
+      idleEl, scanningEl, resultsEl
+    );
+    main.appendChild(panel);
+
+    // Register message listener exactly once here
+    chrome.runtime.onMessage.addListener(onMessage);
+  }
+
+  // ── View toggle ────────────────────────────────────────────────────────────
+
+  function toggleView() {
+    inScanView = !inScanView;
+    const panel     = document.getElementById('scan-panel');
+    const tabBtn    = document.querySelector('.tab-btn');
+
+    if (inScanView) {
+      document.getElementById('bookmark-list').classList.add('hidden');
+      document.getElementById('empty-state').classList.add('hidden');
+      document.getElementById('action-bar').classList.add('hidden');
+      panel.classList.remove('hidden');
+      tabBtn.classList.add('active-tab');
+      // Update idle subtitle with live count
+      document.getElementById('scan-idle-sub').textContent =
+        `Scans all ${countUrls(fullTree)} bookmarks in your collection`;
+      // If scan finished while user was away, show idle (not stale scanning state)
+      if (!scanning) setState('idle');
+    } else {
+      panel.classList.add('hidden');
+      tabBtn.classList.remove('active-tab');
+      // Restore main view driven by current folder state — don't blindly show empty-state
+      if (selectedFolderId) {
+        const node = findNode(fullTree, selectedFolderId);
+        if (node) { renderBookmarks(node); } else { clearMain(); }
+      } else {
+        clearMain();
+      }
+      updateActionBar(); // restore #action-bar based on checkedIds
+    }
+  }
+
+  // ── Panel state ────────────────────────────────────────────────────────────
+
+  function setState(state) {
+    document.getElementById('scan-idle').classList.toggle('hidden',     state !== 'idle');
+    document.getElementById('scan-scanning').classList.toggle('hidden', state !== 'scanning');
+    document.getElementById('scan-results').classList.toggle('hidden',  state !== 'results');
+  }
+
+  // ── Scan lifecycle ─────────────────────────────────────────────────────────
+
+  function startScan() {
+    if (!scanTabId) { toast('Cannot start scan: tab ID unavailable', 'error'); return; }
+    checkedScanIds.clear();
+    setState('scanning');
+    scanning = true;
+    resetWatchdog();
+    chrome.runtime.sendMessage({ type: 'START_SCAN', tabId: scanTabId });
+  }
+
+  function cancelScan() {
+    chrome.runtime.sendMessage({ type: 'CANCEL_SCAN' });
+    clearWatchdog();
+    scanning = false;
+    setState('idle'); // return panel to idle — any late SCAN_COMPLETE will be handled gracefully
+  }
+
+  // Watchdog: RESET on every SCAN_PROGRESS — fires 15s after the last one
+  function resetWatchdog() {
+    clearWatchdog();
+    watchdog = setTimeout(() => {
+      if (scanning) {
+        scanning = false;
+        if (inScanView) {
+          setState('idle');
+          toast('Scan interrupted \u2014 please try again', 'error');
+        }
+      }
+    }, 15000);
+  }
+
+  function clearWatchdog() {
+    if (watchdog) { clearTimeout(watchdog); watchdog = null; }
+  }
+
+  // ── Message handling ───────────────────────────────────────────────────────
+
+  function onMessage(msg) {
+    if (msg.type === 'SCAN_PROGRESS' && inScanView) {
+      resetWatchdog();
+      const { checked, total, brokenCount } = msg;
+      const pct = total > 0 ? Math.round((checked / total) * 100) : 0;
+      document.getElementById('progress-fill').style.width = pct + '%';
+      document.getElementById('progress-text').textContent   = `${checked} of ${total} checked`;
+      document.getElementById('progress-broken').textContent = `${brokenCount} broken so far`;
+    }
+    if (msg.type === 'SCAN_COMPLETE') {
+      clearWatchdog();
+      scanning   = false;
+      brokenList = msg.broken || [];
+      scanTotal  = msg.total  || 0;
+      if (inScanView) renderResults();
+    }
+  }
+
+  // ── Results rendering ──────────────────────────────────────────────────────
+
+  function renderResults() {
+    setState('results');
+    checkedScanIds.clear();
+    updateBulkBar();
+
+    const header = document.getElementById('results-header');
+    clearEl(header);
+
+    if (brokenList.length === 0) {
+      header.appendChild(el('span', {
+        style: 'font-family:var(--mono);font-size:11px;color:var(--green)',
+        text: '\u2713 No broken links found \u2014 your bookmarks are clean.'
+      }));
+      clearEl(document.getElementById('results-list'));
+      document.getElementById('scan-bulk-bar').classList.add('hidden');
+      return;
+    }
+
+    // Results header: summary + rescan button
+    const summary = document.createElement('div');
+    summary.className = 'results-summary';
+    summary.appendChild(document.createTextNode('Found '));
+    summary.appendChild(el('span', { cls: 'count',
+      text: `${brokenList.length} broken link${brokenList.length !== 1 ? 's' : ''}` }));
+    summary.appendChild(document.createTextNode(` out of ${scanTotal} checked`));
+    const rescanBtn = el('button', { cls: 'rescan-btn', text: 'Re-scan',
+      onclick: () => setState('idle') });
+    appendChildren(header, summary, rescanBtn);
+
+    // Sorted list: by folderPath then title
+    const list = document.getElementById('results-list');
+    clearEl(list);
+    const sorted = [...brokenList].sort((a, b) =>
+      (a.folderPath + '\0' + a.title).localeCompare(b.folderPath + '\0' + b.title)
+    );
+    for (const bm of sorted) list.appendChild(buildResultRow(bm));
+
+    document.getElementById('select-all-link').textContent =
+      `Select All (${brokenList.length})`;
+  }
+
+  function buildResultRow(bm) {
+    const row = el('div', { cls: 'result-row' });
+    row.dataset.id = bm.id;
+
+    // Checkbox
+    const cb = el('input', { type: 'checkbox', cls: 'result-cb' });
+    cb.checked = checkedScanIds.has(bm.id);
+    cb.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleScanCheck(bm.id, cb.checked, row);
+    });
+
+    // Info block
+    const nameEl   = el('div', { cls: 'result-name',   text: bm.title });
+    const urlEl    = el('div', { cls: 'result-url',    text: bm.url });
+    const folderEl = el('div', { cls: 'result-folder',
+      text: bm.folderPath ? '\uD83D\uDCC1 ' + bm.folderPath : '' });
+    const info = el('div', { cls: 'result-info' }, nameEl, urlEl, folderEl);
+
+    // Status badge — class keyed off statusType
+    const badge = el('span', { cls: `status-badge badge-${bm.statusType}`,
+      text: bm.statusLabel });
+
+    // Open button
+    const openBtn = el('button', { cls: 'result-action open', text: '\u2197',
+      title: 'Open in new tab',
+      onclick: e => { e.stopPropagation(); chrome.tabs.create({ url: bm.url }); }
+    });
+
+    // Edit button — updates bookmark and row in-place, no reload()
+    const editBtn = el('button', { cls: 'result-action edit', text: 'Edit',
+      onclick: async e => {
+        e.stopPropagation();
+        const result = await Modal.editBookmark('Edit bookmark', bm.title, bm.url);
+        if (!result) return;
+        await chrome.bookmarks.update(bm.id, { title: result.title, url: result.url });
+        bm.title = result.title;
+        bm.url   = result.url;
+        nameEl.textContent = result.title;
+        urlEl.textContent  = result.url;
+        toast('Bookmark updated', 'success');
+      }
+    });
+
+    // Delete button — removes row, decrements counts, no reload()
+    const delBtn = el('button', { cls: 'result-action del', text: 'Delete',
+      onclick: async e => {
+        e.stopPropagation();
+        await chrome.bookmarks.remove(bm.id);
+        checkedScanIds.delete(bm.id);
+        brokenList = brokenList.filter(b => b.id !== bm.id);
+        animateRemoveRow(row);
+        setTimeout(async () => {
+          row.remove();
+          updateResultsCount();
+          await updateSidebarTotal();
+        }, 300);
+        toast('Deleted', 'success');
+      }
+    });
+
+    const actions = el('div', { cls: 'result-actions' }, openBtn, editBtn, delBtn);
+    appendChildren(row, cb, info, badge, actions);
+    return row;
+  }
+
+  // ── Selection ──────────────────────────────────────────────────────────────
+
+  function toggleScanCheck(id, checked, row) {
+    if (checked) checkedScanIds.add(id); else checkedScanIds.delete(id);
+    row.classList.toggle('checked', checked);
+    updateBulkBar();
+  }
+
+  function toggleSelectAll() {
+    const allRows = [...document.querySelectorAll('.result-row')];
+    const allOn   = allRows.every(r => checkedScanIds.has(r.dataset.id));
+    allRows.forEach(row => {
+      const cb = row.querySelector('.result-cb');
+      if (allOn) {
+        checkedScanIds.delete(row.dataset.id);
+        cb.checked = false; row.classList.remove('checked');
+      } else {
+        checkedScanIds.add(row.dataset.id);
+        cb.checked = true;  row.classList.add('checked');
+      }
+    });
+    updateBulkBar();
+  }
+
+  function updateBulkBar() {
+    const n   = checkedScanIds.size;
+    const bar = document.getElementById('scan-bulk-bar');
+    if (bar) bar.classList.toggle('hidden', n === 0);
+    const lbl = document.getElementById('bulk-label');
+    if (lbl) lbl.textContent = `${n} selected`;
+  }
+
+  // ── Bulk delete ────────────────────────────────────────────────────────────
+
+  async function bulkDelete() {
+    if (checkedScanIds.size === 0) return;
+    const ids = [...checkedScanIds];
+    const ok = await Modal.confirm(
+      'Delete bookmarks',
+      `Delete ${ids.length} bookmark${ids.length !== 1 ? 's' : ''}? This cannot be undone.`,
+      'danger'
+    );
+    if (!ok) return;
+
+    let deleted = 0;
+    for (const id of ids) {
+      try {
+        await chrome.bookmarks.remove(id);
+        const row = document.querySelector(`.result-row[data-id="${id}"]`);
+        if (row) { animateRemoveRow(row); setTimeout(() => row.remove(), 300); }
+        brokenList = brokenList.filter(b => b.id !== id);
+        deleted++;
+      } catch (err) { console.error(err); }
+    }
+    checkedScanIds.clear();
+    updateBulkBar();
+    updateResultsCount();
+    await updateSidebarTotal();
+    toast(`Deleted ${deleted} bookmark${deleted !== 1 ? 's' : ''}`, 'success');
+  }
+
+  // ── Stat helpers ───────────────────────────────────────────────────────────
+
+  // Update the broken count in the results header without calling reload()
+  function updateResultsCount() {
+    const countEl = document.querySelector('#results-header .count');
+    if (!countEl) return;
+    const n = brokenList.length;
+    countEl.textContent = `${n} broken link${n !== 1 ? 's' : ''}`;
+  }
+
+  // Update #stat-total without triggering renderSidebar or renderBookmarks
+  async function updateSidebarTotal() {
+    const tree = await chrome.bookmarks.getTree();
+    const totalEl = document.getElementById('stat-total');
+    if (totalEl) totalEl.textContent = countUrls(tree[0]) || '\u2014';
+  }
+
+  return { init };
+})();
