@@ -375,3 +375,129 @@ body {
 #toast.hidden { display: none; }
 #toast.success { color: var(--green); border-color: rgba(48,164,108,0.4); }
 #toast.error { color: var(--red); border-color: rgba(229,72,77,0.4); }
+
+/* ── Dead Links tab button ───────────────────────────────────────────────── */
+.tab-btn {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.08em; padding: 5px 12px; border-radius: 4px;
+  cursor: pointer; border: 1px solid var(--border); background: transparent;
+  color: var(--text-muted); transition: all 0.15s; white-space: nowrap;
+}
+.tab-btn:hover { color: var(--text-dim); border-color: var(--border-light); }
+.tab-btn.active-tab {
+  color: var(--red); background: var(--red-dim);
+  border-color: rgba(229,72,77,0.3);
+}
+
+/* ── Scan panel shell ────────────────────────────────────────────────────── */
+#scan-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── Idle + scanning states (centered content) ───────────────────────────── */
+.scan-idle,
+.scan-scanning {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+}
+
+.scan-center {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 16px; padding: 40px; text-align: center;
+}
+
+.scan-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.scan-sub   { font-family: var(--mono); font-size: 11px; color: var(--text-muted); }
+
+/* ── Progress bar ────────────────────────────────────────────────────────── */
+.progress-wrap { width: 320px; }
+
+.progress-bar-bg {
+  height: 3px; background: var(--surface-3); border-radius: 2px;
+  overflow: hidden; margin-bottom: 8px;
+}
+.progress-bar-fill {
+  height: 100%; background: var(--amber); border-radius: 2px;
+  width: 0%; transition: width 0.3s ease;
+}
+
+.progress-label {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+}
+
+/* ── Results state ───────────────────────────────────────────────────────── */
+.scan-results { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+.results-header {
+  padding: 10px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  background: var(--surface-2);
+}
+.results-summary {
+  font-family: var(--mono); font-size: 10px; color: var(--text-muted); flex: 1;
+}
+.results-summary .count { color: var(--red); font-weight: 600; }
+
+.rescan-btn {
+  font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+  background: transparent; border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 10px; cursor: pointer; transition: all 0.12s;
+}
+.rescan-btn:hover { color: var(--text); border-color: var(--border-light); }
+
+.results-list { flex: 1; overflow-y: auto; }
+.results-list::-webkit-scrollbar { width: 4px; }
+.results-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Result rows ─────────────────────────────────────────────────────────── */
+.result-row {
+  display: flex; align-items: center; gap: 12px; padding: 8px 20px;
+  border-bottom: 1px solid rgba(42,44,53,0.4);
+  transition: background 0.1s;
+}
+.result-row:hover   { background: rgba(255,255,255,0.025); }
+.result-row.checked { background: var(--red-dim); }
+
+.result-cb { width: 14px; height: 14px; accent-color: var(--red); cursor: pointer; flex-shrink: 0; }
+
+.result-info  { flex: 1; min-width: 0; }
+.result-name  { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 1px; }
+.result-url   { font-family: var(--mono); font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.result-folder { font-family: var(--mono); font-size: 9px; color: var(--text-muted); opacity: 0.6; margin-top: 1px; }
+
+/* ── Status badges ───────────────────────────────────────────────────────── */
+.status-badge {
+  font-family: var(--mono); font-size: 9px; font-weight: 600;
+  letter-spacing: 0.05em; padding: 2px 7px; border-radius: 3px;
+  flex-shrink: 0; white-space: nowrap;
+}
+.badge-http-error    { color: var(--red);  background: var(--red-dim); }
+.badge-timeout       { color: #f76b15;     background: rgba(247,107,21,0.12); }
+.badge-network-error { color: #3b82f6;     background: rgba(59,130,246,0.12); }
+
+/* ── Row action buttons ──────────────────────────────────────────────────── */
+.result-actions {
+  display: flex; gap: 4px; opacity: 0; transition: opacity 0.12s; flex-shrink: 0;
+}
+.result-row:hover .result-actions { opacity: 1; }
+
+.result-action {
+  font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+  background: transparent; border: 1px solid var(--border); border-radius: 3px;
+  padding: 3px 8px; cursor: pointer; transition: all 0.12s; white-space: nowrap;
+}
+.result-action.open:hover { color: var(--amber); border-color: var(--amber); background: var(--amber-dim); }
+.result-action.edit:hover { color: var(--text); border-color: var(--border-light); background: var(--surface-3); }
+.result-action.del:hover  { color: var(--red);  border-color: var(--red); background: var(--red-dim); }
+
+/* ── Bulk action bar ─────────────────────────────────────────────────────── */
+.scan-bulk-bar {
+  padding: 10px 20px; background: rgba(17,18,20,0.97);
+  backdrop-filter: blur(16px); border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0; z-index: 10;
+}
+.bulk-label { font-family: var(--mono); font-size: 11px; color: var(--red); font-weight: 500; }
+.select-all-link {
+  font-family: var(--mono); font-size: 10px; color: var(--text-muted);
+  cursor: pointer; transition: color 0.12s;
+}
+.select-all-link:hover { color: var(--text); }
