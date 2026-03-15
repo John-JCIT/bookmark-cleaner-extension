@@ -846,14 +846,21 @@ const ScanView = (() => {
     setState('scanning');
     scanning = true;
     resetWatchdog();
-    chrome.runtime.sendMessage({ type: 'START_SCAN', tabId: scanTabId });
+    chrome.runtime.sendMessage({ type: 'START_SCAN', tabId: scanTabId })
+      .catch(() => {
+        // "Receiving end does not exist" — SW not reachable (stale page context after reload)
+        clearWatchdog();
+        scanning = false;
+        setState('idle');
+        toast('Could not reach extension background \u2014 please close and reopen this tab', 'error');
+      });
   }
 
   function cancelScan() {
-    chrome.runtime.sendMessage({ type: 'CANCEL_SCAN' });
+    chrome.runtime.sendMessage({ type: 'CANCEL_SCAN' }).catch(() => {});
     clearWatchdog();
     scanning = false;
-    setState('idle'); // return panel to idle — any late SCAN_COMPLETE will be handled gracefully
+    setState('idle');
   }
 
   // Watchdog: RESET on every SCAN_PROGRESS — fires 15s after the last one
